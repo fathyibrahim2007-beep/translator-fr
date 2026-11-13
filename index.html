@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>مترجم عربي ⇄ Français</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#C62828">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--ov:rgba(246,244,239,.78);--bg:#f6f4ef;--fg:#1d1d1b;--mut:#6b6a66;--card:#fff;--bd:#e3e0d8;--ac:#c0392b;--ac2:#C62828}
+@media (prefers-color-scheme:dark){:root{--ov:rgba(22,22,21,.84);--bg:#161615;--fg:#f1efe8;--mut:#a09e96;--card:#222220;--bd:#34332f;--ac:#e5594a;--ac2:#ef7b7b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);background:linear-gradient(var(--ov),var(--ov)),url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 3 2' preserveAspectRatio='xMidYMid slice'%3E%3Crect width='1' height='2' fill='%23002395'/%3E%3Crect x='1' width='1' height='2' fill='%23ffffff'/%3E%3Crect x='2' width='1' height='2' fill='%23ed2939'/%3E%3C/svg%3E") center/cover fixed no-repeat;color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;min-height:100vh}
+main{max-width:520px;margin:0 auto;padding:20px 16px 40px;display:flex;flex-direction:column;gap:16px}
+h1{font-size:20px;margin:4px 0 0;text-align:center}
+.seg{display:flex;background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:4px;gap:4px}
+.seg button{flex:1;padding:11px 6px;border:0;border-radius:9px;background:transparent;color:var(--fg);font-size:15px;cursor:pointer}
+.seg button.on{background:var(--ac2);color:#fff;font-weight:600}
+.mic{align-self:center;width:96px;height:96px;border-radius:50%;border:0;background:var(--ac);color:#fff;font-size:38px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.2)}
+.mic.on{animation:pulse 1.2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(192,57,43,.55)}100%{box-shadow:0 0 0 26px rgba(192,57,43,0)}}
+#status{text-align:center;color:var(--mut);font-size:15px;min-height:22px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px 16px}
+.lbl{font-size:12px;color:var(--mut);margin-bottom:6px}
+textarea{width:100%;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;font-size:18px;padding:10px;resize:vertical}
+#tr{font-size:22px;line-height:1.5;min-height:34px;color:var(--ac2);font-weight:600}
+.row{display:flex;gap:8px;margin-top:10px}
+.btn{flex:1;padding:11px;border-radius:10px;border:1px solid var(--bd);background:var(--bg);color:var(--fg);font-size:15px;cursor:pointer}
+.btn.main{background:var(--ac2);color:#fff;border:0}
+.btn:disabled{opacity:.4}
+#hist{display:flex;flex-direction:column;gap:8px}
+.h{border-top:1px solid var(--bd);padding-top:8px;font-size:14px}
+.h .t{color:var(--ac2)}
+.err{color:var(--ac);text-align:center;font-size:14px}
+h1,#status,.err{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:8px 12px}
+#status:empty,.err:empty{display:none}
+</style>
+</head>
+<body>
+<main>
+  <h1>مترجم صوتي: عربي ⇄ Français</h1>
+  <div class="seg" id="seg">
+    <button id="d1" class="on">عربي ← Français</button>
+    <button id="d2">Français → عربي</button>
+  </div>
+  <button class="mic" id="mic" aria-label="ميكروفون">🎤</button>
+  <div id="status"></div>
+  <div class="card">
+    <div class="lbl" id="inLbl"></div>
+    <textarea id="inp" rows="3" dir="auto"></textarea>
+    <div class="row"><button class="btn main" id="go">ترجم وانطق</button></div>
+  </div>
+  <div class="card">
+    <div class="lbl" id="outLbl"></div><div id="tr" dir="auto"></div>
+    <div class="row"><button class="btn" id="play" disabled>🔊 اسمعها تاني</button><button class="btn" id="copy" disabled>نسخ</button></div>
+  </div>
+  <div id="hist"></div>
+  <div class="err" id="err"></div>
+</main>
+<script>
+if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){})}
+(function(){
+  var $=function(i){return document.getElementById(i)};
+  var mic=$('mic'),st=$('status'),inp=$('inp'),trEl=$('tr'),err=$('err'),play=$('play'),copy=$('copy'),hist=$('hist');
+  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  var rec=null,listening=false,lastTr='';
+  var CFG={
+    a2t:{src:'ar',tgt:'fr',rec:'ar-EG',speak:'fr-FR',inLbl:'اللي قلته بالعربي (أو اكتب، أو استخدم ميكروفون الكيبورد 🎤)',inPh:'اكتب أو اتكلم بالعربي…',outLbl:'Français'},
+    t2a:{src:'fr',tgt:'ar',rec:'fr-FR',speak:'ar-EG',inLbl:'Parlez ou écrivez en français (micro du clavier 🎤)',inPh:'Écrivez ou parlez en français…',outLbl:'العربية'}
+  };
+  var cur='a2t';
+  function setDir(k){
+    cur=k;var c=CFG[k];
+    $('d1').className=k==='a2t'?'on':'';$('d2').className=k==='t2a'?'on':'';
+    $('inLbl').textContent=c.inLbl;inp.placeholder=c.inPh;$('outLbl').textContent=c.outLbl;
+    inp.value='';trEl.textContent='';lastTr='';play.disabled=copy.disabled=true;err.textContent='';st.textContent='';
+    if(listening&&rec){discard=true;wantListening=false;try{rec.abort()}catch(e){}}
+  }
+  $('d1').addEventListener('click',function(){setDir('a2t')});
+  $('d2').addEventListener('click',function(){setDir('t2a')});
+  setDir('a2t');
+
+  function findVoice(lang){
+    var vs=(window.speechSynthesis&&speechSynthesis.getVoices())||[];
+    var p=lang.slice(0,2).toLowerCase();
+    return vs.find(function(v){return v.lang&&v.lang.toLowerCase().replace('_','-')===lang.toLowerCase()})||
+           vs.find(function(v){return v.lang&&v.lang.toLowerCase().replace('_','-').indexOf(p)===0})||null;
+  }
+  if(window.speechSynthesis){speechSynthesis.onvoiceschanged=function(){}}
+
+  function speak(t,lang){
+    if(!window.speechSynthesis||!t)return;
+    speechSynthesis.cancel();
+    var u=new SpeechSynthesisUtterance(t);
+    u.lang=lang;var v=findVoice(lang);if(v)u.voice=v;u.rate=0.95;
+    speechSynthesis.speak(u);
+  }
+
+  async function viaGoogle(text,s,t){
+    var r=await fetch('https://translate.googleapis.com/translate_a/single?client=gtx&sl='+s+'&tl='+t+'&dt=t&q='+encodeURIComponent(text));
+    if(!r.ok)throw new Error('g');
+    var j=await r.json();
+    return j[0].map(function(p){return p[0]}).join('');
+  }
+  async function viaMyMemory(text,s,t){
+    var r=await fetch('https://api.mymemory.translated.net/get?langpair='+s+'|'+t+'&q='+encodeURIComponent(text));
+    if(!r.ok)throw new Error('m');
+    var j=await r.json();
+    return j.responseData.translatedText;
+  }
+  async function translate(text,s,t){
+    try{return await viaGoogle(text,s,t)}catch(e){return await viaMyMemory(text,s,t)}
+  }
+
+  async function handle(text){
+    var c=CFG[cur];
+    err.textContent='';trEl.textContent='';st.textContent='بترجم… / Traduction…';
+    try{
+      var t=(await translate(text,c.src,c.tgt)).trim();
+      if(c!==CFG[cur])return;
+      lastTr=t;trEl.textContent=t;st.textContent='';
+      play.disabled=copy.disabled=false;
+      speak(t,c.speak);
+      var d=document.createElement('div');d.className='h';
+      var a=document.createElement('div');a.dir='auto';a.textContent=text;
+      var b=document.createElement('div');b.className='t';b.dir='auto';b.textContent=t;
+      d.appendChild(a);d.appendChild(b);hist.insertBefore(d,hist.firstChild);
+    }catch(e){
+      st.textContent='';
+      err.textContent='الترجمة فشلت. اتأكد إن النت شغال وجرّب تاني.';
+    }
+  }
+
+  var wantListening=false,committed='',sessionText='',discard=false;
+  function resetMic(){listening=false;wantListening=false;mic.classList.remove('on');mic.textContent='🎤'}
+  function startSession(){
+    var c=CFG[cur];
+    rec=new SR();rec.lang=c.rec;rec.interimResults=true;rec.continuous=true;
+    sessionText='';
+    rec.onresult=function(e){
+      var s='';
+      for(var i=0;i<e.results.length;i++){s+=e.results[i][0].transcript+' '}
+      sessionText=s.trim();
+      inp.value=(committed+' '+sessionText).trim();
+    };
+    rec.onerror=function(e){
+      if(e.error==='not-allowed'||e.error==='service-not-allowed'){
+        err.textContent='الميكروفون مش مسموح. استخدم ميكروفون الكيبورد 🎤 في المربع.';
+        discard=true;wantListening=false;
+      }else if(e.error==='network'||e.error==='audio-capture'){
+        err.textContent='مشكلة في التعرّف على الصوت ('+e.error+').';
+        wantListening=false;
+      }
+    };
+    rec.onend=function(){
+      if(discard){discard=false;resetMic();st.textContent='';return}
+      if(wantListening){
+        committed=(committed+' '+sessionText).trim();
+        setTimeout(function(){if(wantListening){try{startSession()}catch(x){resetMic()}}},150);
+        return;
+      }
+      var txt=(committed+' '+sessionText).trim();
+      resetMic();
+      if(txt){inp.value=txt;handle(txt)}else{st.textContent='مسمعتش حاجة، جرّب تاني.'}
+    };
+    rec.start();
+  }
+  function start(){
+    err.textContent='';
+    if(!SR||!window.isSecureContext){
+      err.textContent='الميكروفون مش متاح هنا. اكتب في المربع واستخدم ميكروفون الكيبورد 🎤.';
+      return;
+    }
+    committed='';sessionText='';inp.value='';trEl.textContent='';
+    wantListening=true;listening=true;
+    mic.classList.add('on');mic.textContent='⏹';
+    st.textContent='بسمعك… اضغط تاني لما تخلّص / J’écoute…';
+    try{startSession()}catch(x){resetMic();st.textContent=''}
+  }
+  function stop(){
+    wantListening=false;
+    st.textContent='ثانية… / Un instant…';
+    try{rec.stop()}catch(x){resetMic()}
+  }
+
+  mic.addEventListener('click',function(){
+    if(window.speechSynthesis)speechSynthesis.cancel();
+    if(listening)stop();else start();
+  });
+  $('go').addEventListener('click',function(){var v=inp.value.trim();if(v)handle(v)});
+  play.addEventListener('click',function(){speak(lastTr,CFG[cur].speak)});
+  copy.addEventListener('click',function(){
+    try{navigator.clipboard.writeText(lastTr);copy.textContent='اتنسخ ✓';setTimeout(function(){copy.textContent='نسخ'},1200)}catch(e){}
+  });
+})();
+</script>
+</body>
+</html>
